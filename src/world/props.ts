@@ -351,7 +351,7 @@ export function makeLabel(text: string, color = '#ffffff'): THREE.Sprite {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
-  const scale = 0.0075;
+  const scale = 0.0058;
   sprite.scale.set(w * scale, h * scale, 1);
   sprite.renderOrder = 50;
   return sprite;

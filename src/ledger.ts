@@ -53,9 +53,9 @@ store
     document.getElementById('status')!.textContent = `Connection failed: ${(e as Error).message}`;
   });
 
+let lastVibrateTask = '';
 store.subscribe(render);
 
-let lastVibrateTask = '';
 function render(s: RoomState): void {
   const tasks = [...s.tasks].sort((a, b) => b.createdAt - a.createdAt);
   const current = tasks.find((t) => t.status === 'running' || t.status === 'planning' || t.status === 'queued') ?? tasks[0];
