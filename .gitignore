@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+.convex
+.DS_Store
+public/assets/generated/*.spz
+public/assets/generated/*.ply

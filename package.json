@@ -1,0 +1,36 @@
+{
+  "name": "dry-run",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Dry Run — rehearse a robot's chore inside a generative twin of a real room before the robot touches it.",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy --cmd 'npm run build'",
+    "assets:world": "node scripts/worldlabs-generate.mjs",
+    "assets:robot": "node scripts/tripo-robot.mjs",
+    "assets:mint": "node scripts/mint-sync.mjs",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@sparkjsdev/spark": "2.0.0",
+    "convex": "^1.45.0",
+    "qrcode": "^1.5.4",
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/qrcode": "^1.5.5",
+    "@types/three": "0.180.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2"
+  }
+}
