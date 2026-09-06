@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import { resolve } from 'node:path';
 
 export default defineConfig({
+  // VITE_BASE=/dry-run/ for GitHub Pages; '/' for Netlify/Vercel/local.
+  base: process.env.VITE_BASE ?? '/',
   server: { open: false, port: 5173 },
   esbuild: { target: 'es2022' },
   build: {

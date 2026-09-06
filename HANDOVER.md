@@ -234,5 +234,7 @@ USDZ take-home export, multi-room "digital cousins" across judges' phones as sim
 
 ## 10. Git
 
-Branch `main`, three commits so far (`82d6c4e` initial, `cc0932a` fixes/docs, `87d5f5b` review fixes). No remote configured —
-create one (`gh repo create`) before submitting the repo link. `dist/`, `.env*`, `.convex`, `public/assets/generated/*.spz|*.ply` are ignored.
+Branch `main`. Remote: https://github.com/vnmoorthy/dry-run (owner vnmoorthy). Live demo on GitHub Pages:
+https://vnmoorthy.github.io/dry-run/ (branch `gh-pages` = `dist/` built with `VITE_BASE=/dry-run/ npm run build`; redeploy by
+rebuilding and force-pushing `dist/` to `gh-pages`). `src/sim/types.ts#assetUrl()` resolves public assets against the Vite base.
+`dist/`, `.env*`, `.convex`, `public/assets/generated/*.spz|*.ply` are ignored.

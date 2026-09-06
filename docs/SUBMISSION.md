@@ -6,7 +6,7 @@
 
 **Track:** Physical AI & Simulation
 
-**Project link:** _live URL_ (phone ledger: `<live URL>/ledger.html?room=demo`) · repo: _GitHub URL_ · fallback video: _link_
+**Project link:** https://vnmoorthy.github.io/dry-run/ (phone ledger: https://vnmoorthy.github.io/dry-run/ledger.html?room=demo) · repo: https://github.com/vnmoorthy/dry-run · architecture: https://github.com/vnmoorthy/dry-run/blob/main/docs/ARCHITECTURE.md · fallback video: _link_
 
 ## Project description
 

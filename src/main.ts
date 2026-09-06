@@ -19,7 +19,7 @@ import { seedRoom } from './app/seed';
 import { Hud, type Tool } from './ui/hud';
 import { applyLayout, DEFAULT_TRIAL, makeVariantLayout, runTrial } from './sim/evaluate';
 import { cellToWorld, nearestFree, worldToCell } from './sim/grid';
-import { DEFAULT_WORLD, newId, type AssetManifest, type Entity, type Fixture, type Gauntlet, type Item, type Vec3, type WorldInfo, type Zone } from './sim/types';
+import { DEFAULT_WORLD, assetUrl, newId, type AssetManifest, type Entity, type Fixture, type Gauntlet, type Item, type Vec3, type WorldInfo, type Zone } from './sim/types';
 
 const ROBOT_HEIGHT = 2.4;
 const CELL = 0.5;
@@ -469,7 +469,7 @@ function sizeFor(shape: string): number {
 
 async function loadManifest(): Promise<AssetManifest | null> {
   try {
-    const res = await fetch('/assets/manifest.json', { cache: 'no-store' });
+    const res = await fetch(assetUrl('assets/manifest.json'), { cache: 'no-store' });
     if (!res.ok) return null;
     return (await res.json()) as AssetManifest;
   } catch {

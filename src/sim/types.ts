@@ -200,10 +200,19 @@ export interface AssetManifest {
   audio?: { key: string; url: string; provider: 'mint'; id?: string }[];
 }
 
+/** Vite `base` at build time ('/' in dev, tests and when unset). Lets the app deploy under a sub-path (GitHub Pages). */
+const BASE_URL: string =
+  ((import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/').replace(/\/$/, '');
+
+/** Resolve a public asset path against the deploy base: assetUrl('attic.spz') → '/attic.spz' or '/dry-run/attic.spz'. */
+export function assetUrl(path: string): string {
+  return `${BASE_URL}/${path.replace(/^\//, '')}`;
+}
+
 export const DEFAULT_WORLD: WorldInfo = {
   name: 'Attic (starter world)',
-  splatUrl: '/attic.spz',
-  colliderUrl: '/collider.glb',
+  splatUrl: assetUrl('attic.spz'),
+  colliderUrl: assetUrl('collider.glb'),
   scale: 5,
   metersPerUnit: 0.4,
   provenance:
