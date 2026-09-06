@@ -235,6 +235,9 @@ USDZ take-home export, multi-room "digital cousins" across judges' phones as sim
 ## 10. Git
 
 Branch `main`. Remote: https://github.com/vnmoorthy/dry-run (owner vnmoorthy). Live demo on GitHub Pages:
-https://vnmoorthy.github.io/dry-run/ (branch `gh-pages` = `dist/` built with `VITE_BASE=/dry-run/ npm run build`; redeploy by
-rebuilding and force-pushing `dist/` to `gh-pages`). `src/sim/types.ts#assetUrl()` resolves public assets against the Vite base.
+https://vnmoorthy.github.io/dry-run/ (branch `gh-pages` = `dist/` built with
+`VITE_BASE=/dry-run/ VITE_SPLAT_URL=https://raw.githubusercontent.com/vnmoorthy/dry-run/main/public/attic.spz npm run build`;
+redeploy by rebuilding and force-pushing `dist/` to `gh-pages`). `src/sim/types.ts#assetUrl()` resolves public assets against
+the Vite base. Splat LoD is opt-in (`VITE_SPLAT_LOD=1`): on the Pages origin the in-browser Tiny LoD build finished but never
+reached the renderer (black room); the plain path renders the 3.84M-splat attic in ~20 s.
 `dist/`, `.env*`, `.convex`, `public/assets/generated/*.spz|*.ply` are ignored.

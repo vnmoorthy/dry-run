@@ -209,9 +209,16 @@ export function assetUrl(path: string): string {
   return `${BASE_URL}/${path.replace(/^\//, '')}`;
 }
 
+/**
+ * Optional override for the starter splat URL (build-time `VITE_SPLAT_URL`). GitHub Pages re-gzips `.spz` on the wire
+ * and Spark's loader then decodes zero splats; raw.githubusercontent.com serves the same bytes uncompressed with CORS.
+ */
+const SPLAT_URL_OVERRIDE: string | undefined = (import.meta as unknown as { env?: { VITE_SPLAT_URL?: string } }).env
+  ?.VITE_SPLAT_URL;
+
 export const DEFAULT_WORLD: WorldInfo = {
   name: 'Attic (starter world)',
-  splatUrl: assetUrl('attic.spz'),
+  splatUrl: SPLAT_URL_OVERRIDE || assetUrl('attic.spz'),
   colliderUrl: assetUrl('collider.glb'),
   scale: 5,
   metersPerUnit: 0.4,

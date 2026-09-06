@@ -61,12 +61,15 @@ export async function loadWorld(
   group.name = 'World';
   scene.add(group);
 
-  const spark = new SparkRenderer({ renderer, enableLod: true, lodRenderScale: 2 });
+  // LoD is opt-in (VITE_SPLAT_LOD=1). The in-browser "Tiny LoD" build takes ~90 s and, on the GitHub Pages origin,
+  // finished without ever handing splats to the renderer (black room); the plain path renders the 3.8M-splat world in ~20 s.
+  const useLod = (import.meta as unknown as { env?: { VITE_SPLAT_LOD?: string } }).env?.VITE_SPLAT_LOD === '1';
+  const spark = new SparkRenderer({ renderer, enableLod: useLod, lodRenderScale: 2 });
   scene.add(spark);
 
   const splat = new SplatMesh({
     url: info.splatUrl,
-    lod: true,
+    lod: useLod,
     raycastable: false,
     onProgress: (ev: ProgressEvent) => {
       if (opts.onProgress && ev.lengthComputable && ev.total > 0) opts.onProgress(ev.loaded / ev.total);
