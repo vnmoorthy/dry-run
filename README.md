@@ -26,6 +26,10 @@ then **Gauntlet** replays the chore across N shuffled, cluttered layouts and pai
 
 *Built in one day at the **Spatial Intelligence + Generative 3D Hackathon** — Founders, Inc. · Fort Mason, San Francisco · Sept 5, 2026*
 
+<a href="https://vnmoorthy.github.io/dry-run/"><img src="docs/media/live-pass.png" alt="Dry Run live: the robot rehearses 'put the red mug on the shelf' — navigate, pick, navigate, place — PASS, with the ledger, tools, Gauntlet and room panels" width="920"></a>
+
+<sub>Captured headlessly from the live URL: <code>put the red mug on the shelf</code> → <b>PASS · 4 steps · 3.6 m</b>. Every ledger row you see is a store mutation the phones receive too.</sub>
+
 </div>
 
 ---
