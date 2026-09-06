@@ -70,14 +70,22 @@ async function main(): Promise<void> {
   const hud = new Hud(app, callbacks(), { mode: store.mode, ledgerUrl: ledgerUrl.toString(), manifest });
   hud.setStatus(store.mode === 'convex' ? 'Connecting to Convex…' : 'Starting offline room…');
   try {
-    await store.ready();
+    // Dead venue Wi-Fi must not strand the projector on "Connecting…": fall back to offline mode.
+    await Promise.race([store.ready(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Convex unreachable after 8 s')), 8000))]);
   } catch (e) {
     console.error(e);
-    hud.setStatus('Convex connection failed — reload with ?local=1 for offline mode.');
+    if (store.mode === 'convex') {
+      hud.setStatus('Convex unreachable — switching to offline mode…');
+      const u = new URL(location.href);
+      u.searchParams.set('local', '1');
+      setTimeout(() => location.replace(u.toString()), 1500);
+    } else hud.setStatus(`Store failed: ${(e as Error).message}`);
     return;
   }
 
-  const worldInfo: WorldInfo = manifest?.world
+  // World authority: a world written by the live World Labs job (or a previous manifest) wins over the
+  // starter; the manifest is pushed only while the room still holds the starter world.
+  const manifestWorld: WorldInfo | null = manifest?.world
     ? {
         name: manifest.world.name,
         splatUrl: manifest.world.splatUrl,
@@ -86,8 +94,11 @@ async function main(): Promise<void> {
         metersPerUnit: manifest.world.metersPerUnit ?? DEFAULT_WORLD.metersPerUnit,
         provenance: `${manifest.world.provider === 'worldlabs' ? 'World Labs Marble' : manifest.world.provider} · ${manifest.world.model ?? ''} · ${manifest.world.inputs ?? ''} ${manifest.world.note ?? ''}`.trim(),
       }
-    : DEFAULT_WORLD;
-  if (store.getState().world.splatUrl !== worldInfo.splatUrl) await store.setWorld(worldInfo);
+    : null;
+  const storedWorld = store.getState().world;
+  const storedIsStarter = storedWorld.splatUrl === DEFAULT_WORLD.splatUrl;
+  if (manifestWorld && storedIsStarter && storedWorld.splatUrl !== manifestWorld.splatUrl) await store.setWorld(manifestWorld);
+  const worldInfo: WorldInfo = store.getState().world;
 
   hud.setStatus('Loading collider and rasterizing the room…');
   let world: WorldHandles;
@@ -96,7 +107,7 @@ async function main(): Promise<void> {
       robotHeight: ROBOT_HEIGHT,
       cell: CELL,
       inflate: 1,
-      onProgress: (f) => hud.setStatus(`Streaming Marble splat… ${Math.round(f * 100)}%`),
+      onProgress: (f) => hud.setStatus(`Downloading Marble splat… ${Math.round(f * 100)}%`),
     });
   } catch (e) {
     console.error(e);
@@ -107,8 +118,13 @@ async function main(): Promise<void> {
   const free = grid.cells.filter((c) => c === 0).length;
   const mpu = worldInfo.metersPerUnit;
   hud.setGridInfo(`${grid.cols}×${grid.rows} cells @ ${(CELL * mpu * 100).toFixed(0)} cm · ${(free * CELL * CELL * mpu * mpu).toFixed(1)} m² drivable · floor y=${world.floorY.toFixed(2)}`);
-  world.splatReady.then(() => hud.setStatus(null)).catch(() => hud.setStatus(null));
-  hud.setStatus('Streaming Marble splat…');
+  hud.setStatus('Decoding Marble splat and building its LoD (~30 s on first load)…');
+  world.splatReady
+    .then(() => {
+      hud.setStatus(null);
+      hud.toast('Room ready — splat, collider and grid live', 3500);
+    })
+    .catch((e) => hud.setStatus(`Splat failed to load: ${(e as Error)?.message ?? e} — collider, grid and robot still work.`));
 
   const trial = { ...DEFAULT_TRIAL, metersPerUnit: mpu };
   const factory = new PropFactory(manifest);
@@ -183,6 +199,12 @@ async function main(): Promise<void> {
   };
 
   store.subscribe((state) => {
+    // The world was swapped elsewhere (World Labs job, another tab): reload onto it.
+    if (state.world.splatUrl !== worldInfo.splatUrl) {
+      hud.setStatus('New world arrived — reloading…');
+      setTimeout(() => location.reload(), 800);
+      return;
+    }
     room.sync(state);
     hud.update(state);
     // Remote pose (reset, "Robot start" tool, another executor) — only when this tab is not driving.
@@ -336,7 +358,7 @@ async function main(): Promise<void> {
   }
 
   async function resetRoom(): Promise<void> {
-    executor.abort();
+    await executor.abort();
     const start = store.getState().robot.pos;
     const startCell = nearestFree(grid, worldToCell(grid, start.x, start.z), 20) ?? { c: Math.floor(grid.cols / 2), r: Math.floor(grid.rows / 2) };
     const seed = seedRoom(grid, cellToWorld(grid, startCell));
@@ -351,8 +373,13 @@ async function main(): Promise<void> {
     const state = store.getState();
     const last = [...state.tasks].sort((a, b) => b.createdAt - a.createdAt).find((t) => t.status !== 'queued');
     const taskText = last?.text ?? 'put the red mug on the shelf';
-    const baseEntities = state.entities.filter((e) => !(e.kind === 'item' && e.clutter)).map(freshItem);
-    const robotPose = { ...state.robot, pos: { ...state.robot.pos } };
+    // Baseline = where the items were when that chore started, so "as-is" is the real starting layout.
+    const before = new Map((last?.layoutBefore ?? []).map((l) => [l.id, l.pos] as const));
+    const baseEntities = state.entities
+      .filter((e) => !(e.kind === 'item' && e.clutter))
+      .map(freshItem)
+      .map((e) => (e.kind === 'item' && before.has(e.id) ? { ...e, pos: before.get(e.id)! } : e));
+    const robotPose = { ...state.robot, pos: { ...robot.pos }, carrying: null };
     const gauntlet: Gauntlet = {
       id: newId('g'),
       taskText,
@@ -374,7 +401,7 @@ async function main(): Promise<void> {
     }
     await store.updateGauntlet(gauntlet.id, { status: 'done', variants });
     const heat = variants.filter((v) => v.passed === false && v.stuckAt).map((v) => ({ ...v.stuckAt!, y: world.floorY }));
-    await store.setHeat([...store.getState().heat, ...heat]);
+    if (heat.length) await store.setHeat([...store.getState().heat, ...heat]);
     const passes = variants.filter((v) => v.passed).length;
     hud.toast(`Gauntlet done: ${passes}/${count} layouts pass`);
     if (passes < count) sfx.fail();
@@ -389,9 +416,11 @@ async function main(): Promise<void> {
       hud.toast('Robot is busy — stop it first.');
       return;
     }
-    // Remove old clutter, apply this variant's layout, then rehearse the same chore for real.
+    // Remove old clutter, restore the baseline layout, apply this variant's shuffle, then rehearse the same chore for real.
     const state = store.getState();
     for (const e of state.entities) if (e.kind === 'item' && e.clutter) await store.removeEntity(e.id);
+    const last = [...state.tasks].sort((a, b) => b.createdAt - a.createdAt).find((t) => t.text === g.taskText && t.layoutBefore);
+    for (const l of last?.layoutBefore ?? []) await store.updateEntity(l.id, { pos: l.pos, state: 'idle', zoneId: null, heldBy: null } as Partial<Item>);
     for (const it of v.layout.items) await store.updateEntity(it.id, { pos: it.pos, state: 'idle', zoneId: null, heldBy: null } as Partial<Item>);
     let i = 0;
     for (const c of v.layout.clutter) {

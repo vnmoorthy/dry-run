@@ -33,6 +33,8 @@ import { dist2d } from './types';
 export interface TrialConfig {
   /** How far (world units) the robot arm can reach from its standing cell. */
   reach: number;
+  /** Approach cells are searched within reach × this, leaving margin for the final turn. */
+  approachFactor: number;
   /** Footprint radius of a clutter box (world units). */
   clutterRadius: number;
   /** Footprint radius of an item standing on the floor (world units). */
@@ -40,7 +42,16 @@ export interface TrialConfig {
   metersPerUnit: number;
 }
 
-export const DEFAULT_TRIAL: TrialConfig = { reach: 2.2, clutterRadius: 0.55, itemRadius: 0.3, metersPerUnit: 0.4 };
+export const DEFAULT_TRIAL: TrialConfig = { reach: 2.2, approachFactor: 0.9, clutterRadius: 0.55, itemRadius: 0.3, metersPerUnit: 0.4 };
+
+/** Where the robot must get near: the handle for fixtures (in front of the face), the entity itself otherwise. */
+export function interactionPoint(e: Entity): Vec3 {
+  if (e.kind === 'fixture') {
+    const out = e.fixtureType === 'drawer' ? 0.12 + e.openness * e.travel : 0.12;
+    return { x: e.pos.x + e.normal.x * out, y: e.pos.y, z: e.pos.z + e.normal.z * out };
+  }
+  return e.pos;
+}
 
 export interface TrialOutcome {
   passed: boolean;
@@ -140,12 +151,17 @@ export function makeVariantLayout(
   }
   const clutter: Vec3[] = [];
   const reachableCells = [...reachable].map((k) => ({ c: k % base.cols, r: Math.floor(k / base.cols) }));
+  const placedItems = new Map(items.map((i) => [i.id, i.pos] as const));
+  const keepClear = entities.map((e) => (e.kind === 'item' && placedItems.has(e.id) ? placedItems.get(e.id)! : e.pos));
   let guard = 0;
-  while (clutter.length < clutterCount && guard++ < 200 && reachableCells.length > 0) {
+  while (clutter.length < clutterCount && guard++ < 300 && reachableCells.length > 0) {
     const cell = reachableCells[Math.floor(rand() * reachableCells.length)];
+    if (!isFree(g, cell)) continue;
     const w = cellToWorld(base, cell);
-    // Keep clutter away from the robot's start so the run is not dead on arrival.
+    // Keep clutter away from the robot's start so the run is not dead on arrival,
+    // off the items/zones/fixtures themselves, and apart from other clutter.
     if (Math.hypot(w.x - robot.pos.x, w.z - robot.pos.z) < 2.5) continue;
+    if (keepClear.some((p) => Math.hypot(p.x - w.x, p.z - w.z) < 1.1)) continue;
     if (clutter.some((c) => Math.hypot(c.x - w.x, c.z - w.z) < 1.2)) continue;
     clutter.push({ x: w.x, y: base.floorY, z: w.z });
     blockDisc(g, w.x, w.z, opts.clutterRadius ?? DEFAULT_TRIAL.clutterRadius);
@@ -153,18 +169,44 @@ export function makeVariantLayout(
   return { items, clutter };
 }
 
-/** Find the single clutter box whose removal unblocks the path (the "why did we fail" answer). */
-export function findBlocker(base: Grid, entities: Entity[], from: Vec3, target: Vec3, cfg: TrialConfig): Vec3 | null {
-  const clutter = entities.filter((e): e is Item => e.kind === 'item' && !!e.clutter);
-  for (const c of clutter) {
-    const without = entities.filter((e) => e.id !== c.id);
-    const g = gridWithEntities(base, without, cfg);
+export interface Blocker {
+  pos: Vec3;
+  name: string;
+}
+
+/**
+ * Find what is blocking the path (the "why did we fail" answer): the single
+ * floor-standing item whose removal unblocks it — clutter first, then loose
+ * items, then placed items — or a pair of clutter boxes.
+ */
+export function findBlocker(base: Grid, entities: Entity[], from: Vec3, target: Vec3, cfg: TrialConfig): Blocker | null {
+  const floorItems = entities.filter((e): e is Item => e.kind === 'item' && Math.abs(e.pos.y - base.floorY) <= 0.6);
+  const ordered = [
+    ...floorItems.filter((i) => i.clutter),
+    ...floorItems.filter((i) => !i.clutter && i.state !== 'placed'),
+    ...floorItems.filter((i) => !i.clutter && i.state === 'placed'),
+  ];
+  const pathExistsWithout = (ids: Set<string>): boolean => {
+    const g = gridWithEntities(base, entities.filter((e) => !ids.has(e.id)), cfg);
     const startCell = startCellFor(base, g, from);
-    const approach = findApproachCell(g, target, cfg.reach, from);
-    if (!approach || !startCell) continue;
-    if (astar(g, startCell, approach)) return c.pos;
+    const approach = findApproachCell(g, target, cfg.reach * cfg.approachFactor, from);
+    if (!approach || !startCell) return false;
+    return astar(g, startCell, approach) !== null;
+  };
+  for (const c of ordered) if (pathExistsWithout(new Set([c.id]))) return { pos: c.pos, name: c.name };
+  const clutter = ordered.filter((i) => i.clutter).slice(0, 4);
+  for (let i = 0; i < clutter.length; i++) {
+    for (let j = i + 1; j < clutter.length; j++) {
+      if (pathExistsWithout(new Set([clutter[i].id, clutter[j].id]))) return { pos: clutter[i].pos, name: `${clutter[i].name} + ${clutter[j].name}` };
+    }
   }
   return null;
+}
+
+export function blockerReason(blocker: Blocker | null, target: Entity, from: Vec3, mpu: number): string {
+  if (!blocker) return `no path to ${target.name} from (${(from.x * mpu).toFixed(1)} m, ${(from.z * mpu).toFixed(1)} m)`;
+  const d = dist2d(blocker.pos, target.pos) * mpu;
+  return `blocked by ${blocker.name} ${d.toFixed(1)} m from ${target.name} (at ${(blocker.pos.x * mpu).toFixed(1)} m, ${(blocker.pos.z * mpu).toFixed(1)} m)`;
 }
 
 export function runTrial(base: Grid, entitiesIn: Entity[], robotIn: RobotPose, taskText: string, cfg: TrialConfig = DEFAULT_TRIAL): TrialOutcome {
@@ -184,11 +226,12 @@ export function runTrial(base: Grid, entitiesIn: Entity[], robotIn: RobotPose, t
       if (!startCell) {
         return { passed: false, reason: 'robot start is not on drivable floor', distanceUnits: distance, stuckAt: robot.pos, failedStep: step };
       }
-      const approach = findApproachCell(grid, target.pos, cfg.reach, robot.pos);
+      const point = interactionPoint(target);
+      const approach = findApproachCell(grid, point, cfg.reach * cfg.approachFactor, robot.pos);
       if (!approach) {
         return {
           passed: false,
-          reason: `no standing room within ${(cfg.reach * cfg.metersPerUnit).toFixed(1)} m of ${target.name}`,
+          reason: `no standing room within ${(cfg.reach * cfg.approachFactor * cfg.metersPerUnit).toFixed(1)} m of ${target.name}`,
           distanceUnits: distance,
           stuckAt: target.pos,
           failedStep: step,
@@ -196,11 +239,9 @@ export function runTrial(base: Grid, entitiesIn: Entity[], robotIn: RobotPose, t
       }
       const path = astar(grid, startCell, approach);
       if (!path) {
-        const blocker = findBlocker(base, entities.filter((e) => e.id !== holding), robot.pos, target.pos, cfg);
-        const where = blocker
-          ? `blocked by clutter at (${(blocker.x * cfg.metersPerUnit).toFixed(1)} m, ${(blocker.z * cfg.metersPerUnit).toFixed(1)} m)`
-          : `no path to ${target.name}`;
-        return { passed: false, reason: where, distanceUnits: distance, stuckAt: blocker ?? robot.pos, failedStep: step };
+        const blocker = findBlocker(base, entities.filter((e) => e.id !== holding), robot.pos, point, cfg);
+        const where = blockerReason(blocker, target, robot.pos, cfg.metersPerUnit);
+        return { passed: false, reason: where, distanceUnits: distance, stuckAt: blocker ? blocker.pos : target.pos, failedStep: step };
       }
       const smooth = smoothPath(grid, path);
       distance += pathLengthUnits(grid, smooth);
@@ -208,7 +249,7 @@ export function runTrial(base: Grid, entitiesIn: Entity[], robotIn: RobotPose, t
       robot.pos = { x: end.x, y: end.y, z: end.z };
       continue;
     }
-    if (dist2d(robot.pos, target.pos) > cfg.reach + 0.05) {
+    if (dist2d(robot.pos, interactionPoint(target)) > cfg.reach + 0.1) {
       return { passed: false, reason: `${target.name} out of reach`, distanceUnits: distance, stuckAt: robot.pos, failedStep: step };
     }
     if (step.kind === 'pick') {

@@ -45,7 +45,7 @@ async function ingest(manifests, label = 'mint') {
     const glb = files.find((f) => /glb$/i.test(f.format ?? f.url));
     const mp3 = files.find((f) => /(mp3|wav|ogg)$/i.test(f.format ?? f.url));
     const name = a.name ?? a.displayName ?? a.id ?? 'asset';
-    const key = arg('key', null) ?? slug(name);
+    const key = manifests.length === 1 && arg('key', null) ? arg('key') : slug(name);
     if (glb) {
       const local = await download(glb.url, `mint/${key}.glb`);
       const idx = props.findIndex((p) => p.key === key);
@@ -76,22 +76,51 @@ async function op(path, body) {
     await sleep(delay);
     delay = Math.min(15_000, Math.round(delay * 1.6));
     const s = await (await fetch(`${BASE}/operations/${id}`, { headers: H() })).json();
-    const status = String(s.status ?? '').toLowerCase();
-    process.stdout.write(`\r   ${status || (s.done ? 'done' : 'running')}   `);
-    if (s.error) throw new Error(s.error.message ?? 'operation failed');
-    if (s.done === true || /succe|complet/.test(status)) {
+    // Statuses: queued | running | preview_ready | billing_required | succeeded | partially_succeeded | failed | canceled
+    const status = String(s.status ?? '');
+    process.stdout.write(`\r   ${status || 'running'}   `);
+    if (status === 'failed' || status === 'canceled') throw new Error(s.error?.message ?? `operation ${status}`);
+    if (status === 'billing_required') throw new Error('billing required — redeem SPATIAL at mint.gg/account, then retry');
+    if (status === 'preview_ready') throw new Error('operation is waiting for preview approval — use generationMode auto');
+    if (status === 'succeeded' || status === 'partially_succeeded') {
       console.log('');
-      return s.resource;
+      return { ...s.resource, assets: s.assets };
     }
   }
   throw new Error('timed out');
 }
 
+/** Resolve a finished resource into { id, name, type, files:[{url, format}] } using the typed asset endpoints. */
 async function artifacts(resource) {
+  const files = [];
+  if (resource.type === 'model' || resource.assets?.glbUrl) {
+    const m = resource.assets?.glbUrl ? resource : await (await fetch(`${BASE}/models/${resource.id}`, { headers: H() })).json();
+    const url = m.assets?.glbUrl ?? m.assets?.optimizedGlbUrl;
+    if (url) files.push({ url, format: 'glb' });
+    return { id: resource.id, name: m.name ?? resource.id, type: 'model', files };
+  }
   const r = await fetch(`${BASE}/assets/${resource.type}/${resource.id}/artifacts`, { headers: H() });
-  const j = await r.json();
+  const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`artifacts → ${r.status}`);
-  return { id: resource.id, name: j.name ?? resource.id, type: resource.type, files: j.files ?? [] };
+  const list = j.files ?? j.artifacts ?? [];
+  return { id: resource.id, name: j.name ?? resource.id, type: resource.type, files: list };
+}
+
+/** An asset pack is a list of models: GET /asset-packs/{id}.items[].modelId → GET /models/{modelId}.assets.glbUrl */
+async function packItems(packId) {
+  const pack = await (await fetch(`${BASE}/asset-packs/${packId}`, { headers: H() })).json();
+  const out = [];
+  for (const it of pack.items ?? []) {
+    if (!it.modelId) continue;
+    const m = await (await fetch(`${BASE}/models/${it.modelId}`, { headers: H() })).json();
+    const url = m.assets?.glbUrl ?? m.assets?.optimizedGlbUrl;
+    if (!url) {
+      console.log(`! ${it.displayName ?? it.modelId}: no glbUrl yet (${it.status ?? m.status ?? '?'})`);
+      continue;
+    }
+    out.push({ id: it.modelId, name: it.displayName ?? m.name ?? it.modelId, type: 'model', files: [{ url, format: 'glb' }] });
+  }
+  return out;
 }
 
 async function main() {
@@ -112,10 +141,9 @@ async function main() {
     await ingest([await artifacts(res)], 'api:model');
   } else if (arg('pack', null)) {
     const res = await op('/asset-packs:generate', { prompt: arg('pack'), itemCount: Number(arg('count', 6)), name: 'Dry Run pack', styleGuide: arg('style', 'realistic household objects, real-world scale, clean topology') });
-    // Packs contain child models; list the pack's artifacts, and if it links items, fetch each.
-    const pack = await artifacts(res);
-    const items = collect(pack);
-    await ingest(items.length ? items : [pack], 'api:pack');
+    const items = await packItems(res.id);
+    if (!items.length) throw new Error('the pack finished without downloadable items');
+    await ingest(items, 'api:pack');
   } else {
     console.log('nothing to do — see the header of this script for usage');
   }

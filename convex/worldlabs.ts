@@ -92,11 +92,13 @@ export const pollWorldJob = internalAction({
     try {
       const res = await fetch(`${BASE}/operations/${operationId}`, { headers: headers() });
       if (!res.ok) throw new Error(`operations ${res.status}`);
-      const j = (await res.json()) as { done: boolean; error?: { message?: string }; response?: { world_id?: string } };
+      const j = (await res.json()) as { done: boolean; error?: { message?: string }; response?: { world_id?: string }; metadata?: { progress?: number } };
       if (j.error) throw new Error(j.error.message ?? 'generation failed');
       if (!j.done) {
         if (attempt >= MAX_POLLS) throw new Error('timed out waiting for the world');
-        await ctx.runMutation(internal.jobs.patch, { id: jobId, progress: Math.min(0.9, 0.05 + attempt / 40) });
+        const raw = Number(j.metadata?.progress);
+        const progress = Number.isFinite(raw) ? 0.05 + 0.85 * (raw > 1 ? raw / 100 : raw) : Math.min(0.9, 0.05 + attempt / 40);
+        await ctx.runMutation(internal.jobs.patch, { id: jobId, progress });
         await ctx.scheduler.runAfter(10_000, internal.worldlabs.pollWorldJob, { jobId, slug, operationId, attempt: attempt + 1, displayName });
         return;
       }
@@ -126,7 +128,8 @@ export const downloadWorld = internalAction({
         };
       };
       const spz = world.assets?.splats?.spz_urls ?? {};
-      const spzUrl = spz['500k'] ?? spz['1m'] ?? spz['full_res'] ?? Object.values(spz)[0];
+      // Keys are 100k / 500k / full_res; 500k is the right budget for a projector laptop.
+      const spzUrl = spz['500k'] ?? spz['full_res'] ?? spz['100k'] ?? Object.values(spz)[0];
       const colliderUrl = world.assets?.mesh?.collider_mesh_url;
       if (!spzUrl || !colliderUrl) throw new Error('world has no spz or collider yet');
       const store = async (url: string, type: string) => {
@@ -147,7 +150,9 @@ export const downloadWorld = internalAction({
           colliderUrl: colliderStored,
           scale: APP_SCALE,
           metersPerUnit: scaleFactor ? Math.max(0.05, Math.min(5, scaleFactor / APP_SCALE)) : 0.4,
-          provenance: `World Labs Marble ${world.model ?? 'marble-1.1'} · world ${worldId}${world.world_marble_url ? ` · ${world.world_marble_url}` : ''}`,
+          provenance: `World Labs Marble ${world.model ?? 'marble-1.1'} · world ${worldId}${world.world_marble_url ? ` · ${world.world_marble_url}` : ''}${
+            world.assets?.splats?.semantics_metadata?.ground_plane_offset !== undefined ? ` · ground offset ${world.assets.splats.semantics_metadata.ground_plane_offset} m` : ''
+          }`,
         },
       });
       await ctx.runMutation(internal.jobs.patch, {

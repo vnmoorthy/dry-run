@@ -15,8 +15,8 @@
 Photograph a room, tap the drawers and doors that matter, type a chore in plain English. A robot rehearses it inside a
 World Labs Marble twin of that exact room: it plans on the Marble collider, drives, picks, opens a prismatic drawer,
 places, closes — and every step flips `queued → doing → done` on the projector and on every judge's phone at the same
-moment. Then *Gauntlet* replays the chore across six shuffled layouts with random clutter and paints where the robot
-got stuck on the floor: for home robots, evaluation per customer room is the bottleneck, and today it takes days of
+moment. Then *Gauntlet* replays the chore across the room as-is plus five shuffled layouts with random clutter and paints where
+the robot got stuck on the floor: for home robots, evaluation per customer room is the bottleneck, and today it takes days of
 hand-built sim per site.
 
 **One interaction:** type a chore. **One visible outcome:** the robot does it (or fails with a reason) and the ledger
@@ -28,7 +28,7 @@ on your phone agrees with the projector.
 - **Tripo** — the robot: text-to-3D (P1) → rig-check → auto-rig → retargeted idle/walk; props via image/text-to-3D.
 - **Mint** — the room was stocked by Claude Code through Mint MCP (asset pack + SFX); `scripts/mint-sync.mjs`.
 - **Convex** — one reactive query drives every screen; entities, robot pose, tasks with per-step status, gauntlets,
-  heat and sponsor generation jobs are tables; refresh mid-run and nothing is lost. Optional Claude planner as an action.
+  heat and sponsor generation jobs are tables; refresh mid-run and the room comes back with the chore re-queued. Optional Claude planner as an action.
 
 **What's new work vs. starters:** everything in `src/`, `convex/`, `scripts/`, `tests/`. The starter attic world
 (`attic.spz`, `collider.glb`) ships with Ian Curtis's third-person-controller-splat template and is the fallback room.

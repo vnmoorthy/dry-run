@@ -312,13 +312,15 @@ export function lineOfSight(grid: Grid, a: Cell, b: Cell): boolean {
     if (!isFree(grid, { c: x0, r: y0 })) return false;
     if (x0 === x1 && y0 === y1) return true;
     const e2 = 2 * err;
-    if (e2 >= dy) {
+    const stepX = e2 >= dy;
+    const stepY = e2 <= dx;
+    // A diagonal step must not squeeze between two blocked cells (same rule as A*).
+    if (stepX && stepY && (!isFree(grid, { c: x0 + sx, r: y0 }) || !isFree(grid, { c: x0, r: y0 + sy }))) return false;
+    if (stepX) {
       err += dy;
       x0 += sx;
-      // Also check the orthogonal neighbour so the line does not squeeze through corners.
-      if (!isFree(grid, { c: x0, r: y0 })) return false;
     }
-    if (e2 <= dx) {
+    if (stepY) {
       err += dx;
       y0 += sy;
     }

@@ -59,6 +59,8 @@ export class RoomView {
       view.group.removeFromParent();
       disposeObject(view.group);
       this.fixtures.delete(id);
+      // Never leave an awaiting executor hanging on a fixture that vanished.
+      this.fixtureAnims.get(id)?.resolve();
       this.fixtureAnims.delete(id);
     }
     for (const [id, obj] of this.zones) {
@@ -105,7 +107,7 @@ export class RoomView {
       return;
     }
     view.group.position.set(f.pos.x, f.pos.y, f.pos.z);
-    if (!this.fixtureAnims.has(f.id)) view.setOpenness(f.openness);
+    if (!this.fixtureAnims.has(f.id) && !this.locked.has(f.id)) view.setOpenness(f.openness);
   }
 
   private syncZone(z: Zone): void {
@@ -141,7 +143,9 @@ export class RoomView {
     const view = this.fixtures.get(id);
     if (!view) return Promise.resolve();
     const f = this.entityById.get(id) as Fixture | undefined;
-    const from = this.fixtureAnims.get(id)?.to ?? f?.openness ?? 0;
+    const existing = this.fixtureAnims.get(id);
+    const from = existing ? THREE.MathUtils.lerp(existing.from, existing.to, Math.min(1, existing.t / existing.dur)) : (f?.openness ?? 0);
+    existing?.resolve();
     return new Promise((resolve) => {
       this.fixtureAnims.set(id, { from, to, t: 0, dur, resolve });
     });

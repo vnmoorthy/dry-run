@@ -11,6 +11,7 @@
  * Model URLs expire ~5 minutes after success, so each result is downloaded immediately.
  * Output: public/assets/generated/robot.glb (+ manifest.robot) or props/<key>.glb (+ manifest.props[]).
  */
+import { mkdir } from 'node:fs/promises';
 import { arg, download, readManifest, requireEnv, sleep, stamp, writeManifest } from './lib.mjs';
 
 const BASE = 'https://openapi.tripo3d.ai/v3';
@@ -35,7 +36,7 @@ async function waitTask(taskId, label) {
       console.log(`\n✔ ${label} done (credits ${d.credits_consumed ?? '?'})`);
       return d;
     }
-    if (['failed', 'cancelled', 'banned', 'expired', 'unknown'].includes(d.status)) throw new Error(`${label} ${d.status}`);
+    if (['failed', 'cancelled', 'banned', 'expired', 'unknown'].includes(d.status)) throw new Error(`${label} ${d.status}${d.error_message ? `: ${d.error_message}` : ''}`);
     if (Date.now() - t0 > 15 * 60_000) throw new Error(`${label} timed out`);
     await sleep(3000);
   }
@@ -82,7 +83,7 @@ async function main() {
   const url = finalTask.output?.pbr_model ?? finalTask.output?.model_url;
   if (!url) throw new Error('no model_url on the final task');
   const file = prop ? `props/${key}.glb` : 'robot.glb';
-  if (prop) (await import('node:fs/promises')).mkdir(new URL('../public/assets/generated/props/', import.meta.url), { recursive: true });
+  if (prop) await mkdir(new URL('../public/assets/generated/props/', import.meta.url), { recursive: true });
   const localUrl = await download(url, file);
   if (prop) {
     const m = await readManifest();

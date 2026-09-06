@@ -6,7 +6,8 @@
  *                 syncs every tab of the same browser.
  *  - ConvexStore: the real thing. One reactive query (`room.getState`) feeds
  *                 every screen — projector, judges' phones, the dashboard —
- *                 and every mutation is a Convex mutation.
+ *                 and every mutation is a Convex mutation. The 4 Hz robot pose
+ *                 is a separate small query so heartbeats never re-run the big one.
  *
  * The 3D executor and the phone ledger only talk to this interface.
  */
@@ -30,9 +31,10 @@ export interface Store {
   addGauntlet(g: Gauntlet): Promise<void>;
   updateGauntlet(id: string, patch: Partial<Gauntlet>): Promise<void>;
   setHeat(points: Vec3[]): Promise<void>;
+  /** Swapping the world empties the room (old entities would sit inside the new walls). */
   setWorld(world: WorldInfo): Promise<void>;
   reset(entities: Entity[], robot: RobotPose): Promise<void>;
-  /** Optional server-side (LLM) planner; returns null when unavailable. */
+  /** Optional server-side (LLM) planner; returns null when unavailable or when it produced no steps. */
   plan?(text: string, entities: Entity[]): Promise<{ kind: string; target: string }[] | null>;
 }
 
@@ -72,7 +74,7 @@ export class LocalStore implements Store {
       this.channel.onmessage = (ev: MessageEvent<Msg>) => {
         const m = ev.data;
         if (!m || m.type !== 'state' || m.from === this.clientId) return;
-        if (m.state.version < this.state.version) return;
+        if (m.state.version <= this.state.version) return;
         this.state = m.state;
         this.notify();
       };
@@ -117,7 +119,14 @@ export class LocalStore implements Store {
     }
   }
 
-  private commit(next: RoomState): void {
+  /**
+   * localStorage is the serialization point: re-read the latest state before
+   * applying the update so two tabs committing at once never swap states.
+   */
+  private commit(update: (s: RoomState) => RoomState): void {
+    const latest = this.load();
+    if (latest && latest.version > this.state.version) this.state = latest;
+    const next = update(this.state);
     next.version = this.state.version + 1;
     this.state = next;
     try {
@@ -134,53 +143,49 @@ export class LocalStore implements Store {
   }
 
   async addEntity(e: Entity): Promise<void> {
-    this.commit({ ...this.state, entities: [...this.state.entities.filter((x) => x.id !== e.id), e] });
+    this.commit((s) => ({ ...s, entities: [...s.entities.filter((x) => x.id !== e.id), e] }));
   }
 
   async updateEntity(id: string, patch: Partial<Entity>): Promise<void> {
-    this.commit({
-      ...this.state,
-      entities: this.state.entities.map((e) => (e.id === id ? ({ ...e, ...patch } as Entity) : e)),
-    });
+    this.commit((s) => ({ ...s, entities: s.entities.map((e) => (e.id === id ? ({ ...e, ...patch } as Entity) : e)) }));
   }
 
   async removeEntity(id: string): Promise<void> {
-    this.commit({ ...this.state, entities: this.state.entities.filter((e) => e.id !== id) });
+    this.commit((s) => ({ ...s, entities: s.entities.filter((e) => e.id !== id) }));
   }
 
   async setRobot(pose: RobotPose): Promise<void> {
-    this.commit({ ...this.state, robot: pose });
+    this.commit((s) => ({ ...s, robot: pose }));
   }
 
   async submitTask(text: string, source: string): Promise<string> {
     const task: Task = { id: newId('t'), text, status: 'queued', steps: [], createdAt: Date.now(), source };
-    const tasks = [...this.state.tasks, task].slice(-MAX_TASKS);
-    this.commit({ ...this.state, tasks });
+    this.commit((s) => ({ ...s, tasks: [...s.tasks, task].slice(-MAX_TASKS) }));
     return task.id;
   }
 
   async updateTask(id: string, patch: Partial<Task>): Promise<void> {
-    this.commit({ ...this.state, tasks: this.state.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
+    this.commit((s) => ({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
   }
 
   async addGauntlet(g: Gauntlet): Promise<void> {
-    this.commit({ ...this.state, gauntlets: [...this.state.gauntlets, g].slice(-MAX_GAUNTLETS) });
+    this.commit((s) => ({ ...s, gauntlets: [...s.gauntlets, g].slice(-MAX_GAUNTLETS) }));
   }
 
   async updateGauntlet(id: string, patch: Partial<Gauntlet>): Promise<void> {
-    this.commit({ ...this.state, gauntlets: this.state.gauntlets.map((g) => (g.id === id ? { ...g, ...patch } : g)) });
+    this.commit((s) => ({ ...s, gauntlets: s.gauntlets.map((g) => (g.id === id ? { ...g, ...patch } : g)) }));
   }
 
   async setHeat(points: Vec3[]): Promise<void> {
-    this.commit({ ...this.state, heat: points });
+    this.commit((s) => ({ ...s, heat: points.slice(-200) }));
   }
 
   async setWorld(world: WorldInfo): Promise<void> {
-    this.commit({ ...this.state, world });
+    this.commit((s) => ({ ...s, world, entities: [], tasks: [], gauntlets: [], heat: [], robot: { ...DEFAULT_ROBOT } }));
   }
 
   async reset(entities: Entity[], robot: RobotPose): Promise<void> {
-    this.commit({ ...this.state, entities, robot, tasks: [], gauntlets: [], heat: [] });
+    this.commit((s) => ({ ...s, entities, robot, tasks: [], gauntlets: [], heat: [] }));
   }
 }
 
@@ -196,6 +201,7 @@ export class ConvexStore implements Store {
   private client: import('convex/browser').ConvexClient | null = null;
   private api: any = null;
   private readyPromise: Promise<void>;
+  private robot: RobotPose = { ...DEFAULT_ROBOT };
 
   constructor(readonly roomSlug: string, private url: string) {
     this.readyPromise = this.init();
@@ -206,11 +212,18 @@ export class ConvexStore implements Store {
     this.client = new ConvexClient(this.url);
     this.api = anyApi;
     await this.client.mutation(this.api.room.ensure, { slug: this.roomSlug, world: DEFAULT_WORLD });
+    // Robot pose: small, hot, separate query.
+    this.client.onUpdate(this.api.room.getRobot, { slug: this.roomSlug }, (pose: RobotPose | null) => {
+      if (!pose) return;
+      this.robot = pose;
+      this.state = { ...this.state, robot: pose };
+      this.notify();
+    });
     await new Promise<void>((resolve) => {
       let first = true;
       this.client!.onUpdate(this.api.room.getState, { slug: this.roomSlug }, (s: RoomState | null) => {
         if (s) {
-          this.state = s;
+          this.state = { ...s, robot: this.robot };
           this.notify();
         }
         if (first) {
@@ -255,6 +268,7 @@ export class ConvexStore implements Store {
     return this.call('entities.remove', { id });
   }
   setRobot(pose: RobotPose): Promise<void> {
+    this.robot = pose;
     return this.call('robot.set', { pose });
   }
   async submitTask(text: string, source: string): Promise<string> {
@@ -270,7 +284,7 @@ export class ConvexStore implements Store {
     return this.call('gauntlets.update', { id, patch });
   }
   setHeat(points: Vec3[]): Promise<void> {
-    return this.call('room.setHeat', { heat: points });
+    return this.call('room.setHeat', { heat: points.slice(-200) });
   }
   setWorld(world: WorldInfo): Promise<void> {
     return this.call('room.setWorld', { world });
@@ -286,7 +300,12 @@ export class ConvexStore implements Store {
         text,
         entities: entities.map((e) => ({ id: e.id, kind: e.kind, name: e.name, tags: e.tags })),
       });
-      return Array.isArray(res?.steps) ? res.steps : null;
+      const steps = res?.steps;
+      if (!Array.isArray(steps) || steps.length === 0) {
+        console.warn('LLM planner declined or unavailable:', res?.reason ?? 'empty plan');
+        return null;
+      }
+      return steps;
     } catch (e) {
       console.warn('LLM planner unavailable, using the rule-based planner', e);
       return null;

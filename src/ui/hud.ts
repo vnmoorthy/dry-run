@@ -36,11 +36,21 @@ export interface ItemDraft {
 const SHAPES = ['mug', 'bottle', 'book', 'plant', 'ball', 'can', 'box', 'crate'];
 const EXAMPLES = [
   'put the red mug on the shelf',
-  'open the top drawer',
   'put the blue bottle in the top drawer, then close it',
-  'bring the green book to the table',
+  'bring me the green book',
+  'open the top drawer',
   'tidy the room',
 ];
+
+/** Pick the task the room should be looking at: running first, then the oldest queued, then the latest finished. */
+export function currentTask(tasks: Task[]): Task | undefined {
+  const byNewest = [...tasks].sort((a, b) => b.createdAt - a.createdAt);
+  return (
+    byNewest.find((t) => t.status === 'running' || t.status === 'planning') ??
+    [...tasks].filter((t) => t.status === 'queued').sort((a, b) => a.createdAt - b.createdAt)[0] ??
+    byNewest[0]
+  );
+}
 
 export class Hud {
   private root: HTMLElement;
@@ -49,6 +59,7 @@ export class Hud {
   private lastState: RoomState | null = null;
   private gridInfo = '';
   private statusEl!: HTMLElement;
+  private resetArmedTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(parent: HTMLElement, private cb: HudCallbacks, private opts: HudOptions) {
     this.root = document.createElement('div');
@@ -57,7 +68,8 @@ export class Hud {
     parent.appendChild(this.root);
     this.statusEl = this.q('#status');
     this.wire();
-    void this.renderQr();
+    if (opts.mode === 'convex') void this.renderQr();
+    if (new URLSearchParams(location.search).get('stage') === '1') this.setStage(true);
   }
 
   private q<T extends HTMLElement = HTMLElement>(sel: string): T {
@@ -65,7 +77,8 @@ export class Hud {
   }
 
   private template(): string {
-    const modeLabel = this.opts.mode === 'convex' ? 'Convex · live' : 'Local · offline';
+    const live = this.opts.mode === 'convex';
+    const modeLabel = live ? 'Convex · live' : 'Local · offline';
     return `
     <header class="brand">
       <div class="brand-row">
@@ -76,7 +89,7 @@ export class Hud {
       <div class="brand-world" id="worldline"></div>
     </header>
 
-    <div id="status" class="status" hidden></div>
+    <div id="status" class="status" hidden><span class="pulse"></span><span id="status-text"></span></div>
     <div id="toast" class="toast" hidden></div>
 
     <aside class="panel left">
@@ -99,14 +112,9 @@ export class Hud {
           <input id="zone-name" placeholder="zone name, e.g. sink" value="sink" />
         </div>
         <div class="draft" id="draft-fixture" hidden>
-          <input id="fixture-name" placeholder="name, e.g. left cabinet" value="cabinet door" />
+          <input id="fixture-name" placeholder="name, e.g. left cabinet" value="left cabinet" />
         </div>
         <div class="tool-hint" id="tool-hint">Click an item, zone or drawer to select it.</div>
-      </section>
-
-      <section>
-        <div class="section-title">Room <span class="hint" id="entity-count"></span></div>
-        <ul class="entities" id="entities"></ul>
       </section>
 
       <section>
@@ -119,6 +127,11 @@ export class Hud {
       </section>
 
       <section>
+        <div class="section-title">Room <span class="hint" id="entity-count"></span></div>
+        <ul class="entities" id="entities"></ul>
+      </section>
+
+      <section>
         <details>
           <summary class="section-title">Receipts <span class="hint">who made what</span></summary>
           <div class="receipts" id="receipts"></div>
@@ -127,6 +140,12 @@ export class Hud {
     </aside>
 
     <aside class="panel right">
+      <section class="row controls">
+        <button id="reset" class="danger">Reset room</button>
+        <button id="abort" class="ghost">Stop robot</button>
+        <label class="toggle"><input type="checkbox" id="follow" checked /> Follow</label>
+        <label class="toggle"><input type="checkbox" id="labels" checked /> Labels</label>
+      </section>
       <section>
         <div class="section-title">Ledger <span class="hint" id="ledger-hint"></span></div>
         <div id="ledger"></div>
@@ -136,18 +155,19 @@ export class Hud {
         <div class="robot-status" id="robot-status"></div>
       </section>
       <section class="qr">
-        <canvas id="qr" width="132" height="132"></canvas>
+        ${
+          live
+            ? `<canvas id="qr" width="148" height="148"></canvas>
         <div class="qr-text">
           <div><strong>Phone ledger</strong></div>
-          <div class="hint">Open on any phone to submit chores and watch every step flip.</div>
+          <div class="hint">Scan to submit chores and watch every step flip on your phone.</div>
           <a id="ledger-link" href="${this.opts.ledgerUrl}" target="_blank" rel="noreferrer">${shortUrl(this.opts.ledgerUrl)}</a>
-        </div>
-      </section>
-      <section class="row">
-        <button id="reset" class="danger">Reset room</button>
-        <button id="abort" class="ghost">Stop robot</button>
-        <label class="toggle"><input type="checkbox" id="follow" checked /> Follow</label>
-        <label class="toggle"><input type="checkbox" id="labels" checked /> Labels</label>
+        </div>`
+            : `<div class="qr-text">
+          <div><strong>Phone sync is off</strong> (offline mode)</div>
+          <div class="hint">The ledger is mirrored in a second tab of this browser: <a href="${this.opts.ledgerUrl}" target="_blank" rel="noreferrer">open ledger</a>. Set <span class="mono">VITE_CONVEX_URL</span> to go live for phones.</div>
+        </div>`
+        }
       </section>
     </aside>
 
@@ -159,7 +179,7 @@ export class Hud {
       <div class="chips" id="chips">${EXAMPLES.map((e) => `<button type="button" data-chore="${e}">${e}</button>`).join('')}</div>
     </footer>
 
-    <div class="hints">Drag: orbit · Scroll: zoom · Esc: select tool · F: follow · L: labels</div>
+    <div class="hints">Drag: orbit · Scroll: zoom · Esc: select tool · F: follow · L: labels · S: stage zoom</div>
     `;
   }
 
@@ -213,14 +233,28 @@ export class Hud {
       if (!tile?.dataset.gid || !tile.dataset.vid) return;
       this.cb.onReplayVariant(tile.dataset.gid, tile.dataset.vid);
     });
-    this.q('#reset').addEventListener('click', () => {
-      if (confirm('Reset the room to the seed layout and clear the ledger?')) this.cb.onReset();
+    // Two-step reset: no native dialog on the projector.
+    const resetBtn = this.q<HTMLButtonElement>('#reset');
+    resetBtn.addEventListener('click', () => {
+      if (resetBtn.dataset.armed === '1') {
+        clearTimeout(this.resetArmedTimer);
+        resetBtn.dataset.armed = '0';
+        resetBtn.textContent = 'Reset room';
+        this.cb.onReset();
+        return;
+      }
+      resetBtn.dataset.armed = '1';
+      resetBtn.textContent = 'Confirm reset (3 s)';
+      this.resetArmedTimer = setTimeout(() => {
+        resetBtn.dataset.armed = '0';
+        resetBtn.textContent = 'Reset room';
+      }, 3000);
     });
     this.q('#abort').addEventListener('click', () => this.cb.onAbort());
     this.q<HTMLInputElement>('#follow').addEventListener('change', (ev) => this.cb.onToggleFollow((ev.target as HTMLInputElement).checked));
     this.q<HTMLInputElement>('#labels').addEventListener('change', (ev) => this.cb.onToggleLabels((ev.target as HTMLInputElement).checked));
     window.addEventListener('keydown', (ev) => {
-      const typing = (ev.target as HTMLElement)?.tagName === 'INPUT';
+      const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes((ev.target as HTMLElement)?.tagName);
       if (ev.key === 'Escape') this.setTool('select');
       if (typing) return;
       if (ev.key === 'f' || ev.key === 'F') {
@@ -233,15 +267,22 @@ export class Hud {
         l.checked = !l.checked;
         this.cb.onToggleLabels(l.checked);
       }
+      if (ev.key === 's' || ev.key === 'S') this.setStage(!document.documentElement.classList.contains('stage'));
     });
+  }
+
+  /** Stage mode: bigger HUD type for a projector at the back of the room. */
+  setStage(on: boolean): void {
+    document.documentElement.classList.toggle('stage', on);
+    this.toast(on ? 'Stage zoom on' : 'Stage zoom off', 1200);
   }
 
   private async renderQr(): Promise<void> {
     try {
       await QRCode.toCanvas(this.q<HTMLCanvasElement>('#qr'), this.opts.ledgerUrl, {
-        width: 132,
-        margin: 1,
-        color: { dark: '#f4f2ee', light: '#00000000' },
+        width: 148,
+        margin: 2,
+        color: { dark: '#0e1116', light: '#ffffff' },
       });
     } catch (e) {
       console.warn('qr failed', e);
@@ -254,6 +295,11 @@ export class Hud {
     this.q('#draft-item').hidden = tool !== 'item';
     this.q('#draft-zone').hidden = tool !== 'zone';
     this.q('#draft-fixture').hidden = !(tool === 'drawer' || tool === 'door');
+    if (tool === 'drawer' || tool === 'door') {
+      const f = this.q<HTMLInputElement>('#fixture-name');
+      if (!f.dataset.touched) f.value = tool === 'door' ? 'left cabinet' : 'bottom drawer';
+      f.addEventListener('input', () => (f.dataset.touched = '1'), { once: true });
+    }
     const hints: Record<Tool, string> = {
       select: 'Click an item, zone or drawer to select it.',
       item: 'Click a surface to drop the item there.',
@@ -288,7 +334,7 @@ export class Hud {
 
   setStatus(text: string | null): void {
     this.statusEl.hidden = !text;
-    this.statusEl.textContent = text ?? '';
+    this.q('#status-text').textContent = text ?? '';
   }
 
   toast(text: string, ms = 2600): void {
@@ -349,18 +395,25 @@ export class Hud {
   }
 
   private renderLedger(state: RoomState): void {
-    const tasks = [...state.tasks].sort((a, b) => b.createdAt - a.createdAt);
-    const current = tasks.find((t) => t.status === 'running' || t.status === 'planning') ?? tasks[0];
-    const queued = tasks.filter((t) => t.status === 'queued').length;
-    this.q('#ledger-hint').textContent = queued ? `${queued} queued` : '';
+    const current = currentTask(state.tasks);
+    const queued = [...state.tasks].filter((t) => t.status === 'queued' && t.id !== current?.id).sort((a, b) => a.createdAt - b.createdAt);
+    this.q('#ledger-hint').textContent = queued.length ? `${queued.length} queued` : '';
     const el = this.q('#ledger');
     if (!current) {
-      el.innerHTML = `<div class="empty">No chores yet. Type one below or scan the QR from a phone.</div>`;
+      el.innerHTML = `<div class="empty">No chores yet. Type one below${this.opts.mode === 'convex' ? ' or scan the QR from a phone' : ''}.</div>`;
       return;
     }
-    const history = tasks.filter((t) => t.id !== current.id && (t.status === 'pass' || t.status === 'fail')).slice(0, 4);
+    const history = [...state.tasks]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .filter((t) => t.id !== current.id && (t.status === 'pass' || t.status === 'fail'))
+      .slice(0, 4);
     el.innerHTML =
       renderTask(current) +
+      (queued.length
+        ? `<div class="queue"><div class="queue-title">Up next (${queued.length})</div>${queued
+            .map((t) => `<div class="queue-item"><span>${escapeHtml(t.text)}</span><em>${escapeHtml(t.source ?? '')}</em></div>`)
+            .join('')}</div>`
+        : '') +
       (history.length
         ? `<details class="history"><summary>Earlier (${history.length})</summary>${history
             .map((t) => `<div class="hist ${t.status}"><span>${escapeHtml(t.text)}</span><b>${t.status.toUpperCase()}</b></div>`)
@@ -370,7 +423,7 @@ export class Hud {
 
   private renderRobot(state: RoomState): void {
     const r = state.robot;
-    const carrying = r.carrying ? state.entities.find((e) => e.id === r.carrying)?.name ?? 'item' : 'nothing';
+    const carrying = r.carrying ? (state.entities.find((e) => e.id === r.carrying)?.name ?? 'item') : 'nothing';
     const mpu = state.world.metersPerUnit;
     this.q('#robot-status').innerHTML = `
       <span class="led ${r.state}"></span><b>${r.state}</b>
@@ -382,16 +435,20 @@ export class Hud {
     const g: Gauntlet | undefined = [...state.gauntlets].sort((a, b) => b.createdAt - a.createdAt)[0];
     const el = this.q('#gauntlet');
     if (!g) {
-      el.innerHTML = `<div class="empty">Runs the last chore across shuffled layouts with random clutter and paints failures on the floor.</div>`;
+      el.innerHTML = `<div class="empty">Replays the last chore across shuffled layouts with random clutter and paints failures on the floor.</div>`;
       return;
     }
     const passes = g.variants.filter((v) => v.passed === true).length;
     const done = g.variants.filter((v) => v.passed !== null).length;
+    const firstFail = g.variants.find((v) => v.passed === false);
     el.innerHTML = `
       <div class="gauntlet-head"><span>“${escapeHtml(g.taskText)}”</span><b>${passes}/${done} pass</b></div>
+      ${firstFail ? `<div class="gauntlet-why"><b>${escapeHtml(firstFail.label)}:</b> ${escapeHtml(firstFail.reason ?? 'failed')}</div>` : ''}
       <div class="tiles">${g.variants
         .map(
-          (v) => `<div class="tile ${v.passed === null ? 'pending' : v.passed ? 'pass' : 'fail'}" data-gid="${g.id}" data-vid="${v.id}" title="click to replay in 3D">
+          (v) => `<div class="tile ${v.passed === null ? 'pending' : v.passed ? 'pass' : 'fail'}" data-gid="${g.id}" data-vid="${v.id}" title="${escapeHtml(
+            v.passed === null ? 'running…' : `${v.passed ? 'PASS' : 'FAIL'} — ${v.reason ?? ''} · click to replay in 3D`,
+          )}">
             <b>${escapeHtml(v.label)}</b><span>${v.passed === null ? '…' : v.passed ? `PASS · ${(v.distanceM ?? 0).toFixed(1)} m` : escapeHtml(v.reason ?? 'FAIL')}</span></div>`,
         )
         .join('')}</div>`;
@@ -424,7 +481,7 @@ export class Hud {
       receipt(
         'Convex',
         this.opts.mode === 'convex'
-          ? 'Live: entities, robot pose, tasks, gauntlets and heat are reactive queries; every step is a mutation.'
+          ? 'Live: entities, tasks, gauntlets and heat are one reactive query, the robot pose another; every step is a mutation.'
           : 'Offline mode: same state model in localStorage + BroadcastChannel. Set VITE_CONVEX_URL to go live.',
         '',
       ),

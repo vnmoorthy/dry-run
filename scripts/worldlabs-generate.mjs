@@ -8,7 +8,7 @@
  *   node scripts/worldlabs-generate.mjs --world <existing world id>                          # just download
  *
  * Options: --model marble-1.1 | marble-1.1-plus | marble-1.0-draft (20 s, cheap for prompt iteration)
- *          --name "Fort Mason lounge"   --res 500k|1m|full_res
+ *          --name "Fort Mason lounge"   --res 500k|100k|full_res   (500k is right for a laptop; 100k for phones)
  *
  * Output: public/assets/generated/world.spz + world-collider.glb and manifest.json → the app
  * loads it automatically (receipts panel shows model + world id).
@@ -30,13 +30,18 @@ async function api(method, p, body) {
 
 async function uploadImage(file) {
   const bytes = await readFile(file);
-  const ext = path.extname(file).slice(1).toLowerCase();
-  const prep = await api('POST', '/media-assets:prepare_upload', { kind: 'image', file_name: path.basename(file), content_type: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
-  const uploadUrl = prep.upload_url ?? prep.uploadUrl;
-  const headers = prep.required_headers ?? prep.requiredHeaders ?? {};
+  const rawExt = path.extname(file).slice(1).toLowerCase();
+  const extension = rawExt === 'jpeg' ? 'jpg' : rawExt;
+  // Contract: request { file_name, kind, extension }, response { media_asset: { media_asset_id }, upload_info: { upload_url, required_headers } }
+  const prep = await api('POST', '/media-assets:prepare_upload', { kind: 'image', file_name: path.basename(file), extension });
+  const info = prep.upload_info ?? prep;
+  const uploadUrl = info.upload_url ?? info.uploadUrl;
+  const headers = info.required_headers ?? info.requiredHeaders ?? {};
+  if (!uploadUrl) throw new Error(`prepare_upload returned no upload_url: ${JSON.stringify(prep).slice(0, 300)}`);
   const put = await fetch(uploadUrl, { method: 'PUT', headers, body: bytes });
   if (!put.ok) throw new Error(`upload ${file}: ${put.status}`);
   const id = prep.media_asset?.media_asset_id ?? prep.media_asset_id ?? prep.id;
+  if (!id) throw new Error(`prepare_upload returned no media_asset_id: ${JSON.stringify(prep).slice(0, 300)}`);
   console.log(`✔ uploaded ${path.basename(file)} → ${id}`);
   return id;
 }
@@ -70,7 +75,9 @@ async function main() {
       await sleep(10_000);
       const s = await api('GET', `/operations/${op.operation_id}`);
       if (s.error) throw new Error(s.error.message ?? JSON.stringify(s.error));
-      process.stdout.write(`\r   ${Math.round((Date.now() - t0) / 1000)} s elapsed…`);
+      const pct = Number(s.metadata?.progress);
+      const pctText = Number.isFinite(pct) ? ` · ${Math.round(pct > 1 ? pct : pct * 100)}%` : '';
+      process.stdout.write(`\r   ${Math.round((Date.now() - t0) / 1000)} s elapsed${pctText}…`);
       if (s.done) {
         worldId = s.response?.world_id;
         console.log(`\n✔ world ready: ${worldId}`);
@@ -82,7 +89,8 @@ async function main() {
 
   const world = await api('GET', `/worlds/${worldId}`);
   const spz = world.assets?.splats?.spz_urls ?? {};
-  const spzUrl = spz[res] ?? spz['500k'] ?? Object.values(spz)[0];
+  if (!spz[res]) console.log(`! no "${res}" spz on this world (keys: ${Object.keys(spz).join(', ')}) — falling back`);
+  const spzUrl = spz[res] ?? spz['500k'] ?? spz['full_res'] ?? spz['100k'] ?? Object.values(spz)[0];
   const colliderUrl = world.assets?.mesh?.collider_mesh_url;
   if (!spzUrl) throw new Error(`no spz url on world (keys: ${Object.keys(spz).join(', ')})`);
   if (!colliderUrl) throw new Error('no collider_mesh_url on world yet — open it in Marble and export the collider, or retry in a minute');
@@ -103,7 +111,7 @@ async function main() {
       marbleUrl: world.world_marble_url,
       inputs: images.length ? `${images.length} photo(s), reconstruct_images` : 'text prompt',
       generatedAt: stamp(),
-      note: meta.ground_plane_offset !== undefined ? `ground_plane_offset ${meta.ground_plane_offset}` : undefined,
+      note: [meta.ground_plane_offset !== undefined ? `ground_plane_offset ${meta.ground_plane_offset} m` : null, 'frame marble_raw_opencv (rotate 180° about X if upside-down)'].filter(Boolean).join(' · '),
     },
   });
   console.log('\nNext: npm run dev — if the robot floats or sinks, tune metersPerUnit/scale in public/assets/manifest.json.');

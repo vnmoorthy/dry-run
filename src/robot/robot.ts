@@ -270,6 +270,8 @@ export class ProceduralBody implements RobotBody {
     this.L1 = 0.7 * s;
     this.L2 = 0.62 * s;
     this.shoulder.position.set(baseW * 0.15, wheelR + baseH + 0.08 * s, baseD * 0.2);
+    // Yaw first, then pitch in the yawed plane — otherwise elevation scales with cos(yaw).
+    this.shoulder.rotation.order = 'YXZ';
     const shoulderJoint = sh(new THREE.Mesh(new THREE.SphereGeometry(0.11 * s, 16, 12), m('#ff7a1a')));
     const upper = sh(new THREE.Mesh(new THREE.BoxGeometry(0.12 * s, 0.12 * s, this.L1), m('#d0cdc6')));
     upper.position.z = this.L1 / 2;

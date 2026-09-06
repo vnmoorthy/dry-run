@@ -32,7 +32,7 @@ export const update = mutation({
     if (!task) return;
     const p = patch as Record<string, unknown>;
     const allowed: Record<string, unknown> = {};
-    for (const k of ['status', 'steps', 'startedAt', 'endedAt', 'result', 'plannerName'] as const) if (k in p) allowed[k] = p[k];
+    for (const k of ['status', 'steps', 'startedAt', 'endedAt', 'result', 'plannerName', 'source', 'layoutBefore'] as const) if (k in p) allowed[k] = p[k];
     await ctx.db.patch(task._id, allowed);
     await ctx.db.patch(room._id, { version: room.version + 1 });
   },

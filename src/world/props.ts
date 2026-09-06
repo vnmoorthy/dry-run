@@ -52,8 +52,11 @@ export class PropFactory {
             m.receiveShadow = false;
           }
         });
-        clone.userData.itemId = item.id;
-        return clone;
+        // Pivot keeps the centring/floor-seating offset while the entity transform is applied to the wrapper.
+        const pivot = new THREE.Group();
+        pivot.add(clone);
+        pivot.userData.itemId = item.id;
+        return pivot;
       } catch (e) {
         console.warn('Falling back to procedural prop for', item.shape, e);
       }

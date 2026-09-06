@@ -62,6 +62,29 @@ body {
   justify-content: flex-start;
 }
 
+#ledger-app .chips button {
+  min-height: 40px;
+  font-size: 14px;
+  padding: 8px 14px;
+}
+
+#ledger-app .steps li {
+  font-size: 15px;
+}
+
+#ledger-app .chip {
+  font-size: 12px;
+}
+
+#ledger-app .steps li .note {
+  font-size: 13px;
+}
+
+#ledger-app .tile {
+  font-size: 13px;
+  min-height: 56px;
+}
+
 #ledger-app section {
   background: var(--panel);
   border: 1px solid var(--panel-border);

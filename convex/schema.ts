@@ -92,9 +92,14 @@ export default defineSchema({
     slug: v.string(),
     world: worldInfo,
     heat: v.array(vec3),
-    robot: robotPose,
     version: v.number(),
   }).index('by_slug', ['slug']),
+
+  /** Hot 4 Hz robot pose, kept out of `rooms` so heartbeats never re-run `getState`. */
+  robots: defineTable({
+    roomId: v.id('rooms'),
+    pose: robotPose,
+  }).index('by_room', ['roomId']),
 
   entities: defineTable({
     roomId: v.id('rooms'),
@@ -116,6 +121,8 @@ export default defineSchema({
     result: v.optional(taskResult),
     plannerName: v.optional(v.string()),
     source: v.optional(v.string()),
+    /** Item positions when the chore started — the Gauntlet's baseline layout. */
+    layoutBefore: v.optional(v.array(v.object({ id: v.string(), pos: vec3 }))),
   })
     .index('by_room', ['roomId', 'createdAt'])
     .index('by_room_task', ['roomId', 'taskId']),

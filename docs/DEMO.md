@@ -8,7 +8,7 @@ sponsor's role; keep one reliable path, a visible reset and a fallback recording
 - Live URL open on the laptop **and** loaded (the splat LoD build takes ~30 s — never open it cold on stage).
 - Phone with `ledger.html?room=<slug>` already open; a second phone/tablet is a bonus.
 - Room reset to the seed (`Reset room`), robot idle, `Follow` on, `Labels` on.
-- Fallback recording (`docs/fallback.mp4`) queued in a second window.
+- Fallback recording queued in a second window (record it at ~16:00 from the deployed URL with a phone in frame; keep it in `docs/fallback.mp4`, un-tracked if large).
 - Convex dashboard → Data → `tasks` open on the second monitor if there is one.
 
 ## Script
@@ -30,20 +30,21 @@ limitation of generated worlds; this is the affordance layer on top."
 When PASS lands, hold the phone up: "Same document, same second, on the judge's phone."
 
 **0:55 — Where it fails (25 s).**
-Click **Run variants** (6). "Same chore, six layouts, random clutter — evaluation, not training, is the bottleneck."
-Tiles flip; red discs appear on the floor. Read one reason aloud: "blocked by clutter at 1.2 m, 3.4 m — that's the
-gap a real robot would get stuck in." Click a red tile: "Replay it in 3D" (let it start driving).
+Click **Run variants** (6). "Same chore: the room as-is plus five shuffled layouts with random clutter — evaluation,
+not training, is the bottleneck." Tiles flip; red discs appear on the floor; the first failure's reason prints under
+the header. Read it aloud: "blocked by clutter box 2, 0.8 m from the shelf — that's the gap a real robot would get stuck
+in." Click a red tile: "Replay it in 3D" (let it start driving).
 
 **1:20 — Sponsors, one line each (20 s).**
 - "World Labs: the twin and its collider, rendered with Spark; Marble world id in the receipts."
 - "Tripo: the robot — text to 3D, auto-rigged, retargeted idle and walk." (If the procedural body is on screen say so:
   "the rigged Tripo body is the swap in the manifest.")
 - "Mint: Claude Code stocked the room through Mint MCP — asset pack and the SFX you heard."
-- "Convex: one reactive query drives the projector, every phone and the dashboard; every step is a mutation; you can
-  refresh mid-run and nothing is lost." (Refresh the tab. It comes back.)
+- "Convex: one reactive query drives the projector, every phone and the dashboard; every step is a mutation. Refresh
+  mid-run and the room, ledger and heat come back — the chore re-queues and resumes." (Refresh the tab; it resumes.)
 
 **1:40 — Reset + ask (20 s).**
-Press **Reset room**. "Build log: 10:14 world, 11:40 robot walking, 13:30 first chore, 15:20 six-layout eval.
+Press **Reset room** twice (the button arms itself for 3 s — no native dialog). "Build log: 10:14 world, 11:40 robot walking, 13:30 first chore, 15:20 six-layout eval.
 Starter disclosed: the attic sample world from Ian's third-person template." Then the ask:
 "Next: export the approved rehearsal as a task spec a real robot stack consumes. We'd like to keep building this at
 Fort Mason for two weeks and apply to Blueprint II by the 14th."
@@ -53,7 +54,7 @@ Fort Mason for two weeks and apply to Blueprint II by the 14th."
 | Symptom | Do this |
 | --- | --- |
 | Wi-Fi drops / Convex badge says offline | Reload with `?local=1` — same demo, phone sync off; say so. |
-| Chore fails to plan | Use an example chip; names must match the Room list. |
+| Chore fails to plan | Use an example chip; names must match the Room list. Ambiguous names get a "Which one: …?" reason — say the colour. |
 | Robot stuck | `Stop robot`, `Robot start` tool → click the floor, re-run. |
 | Splat never appears | The collider, grid and robot still work; switch to the fallback recording for the wide shot. |
 | Anything else | Fallback recording. Keep talking; the ledger on the phone still tells the story. |
@@ -63,3 +64,4 @@ Fort Mason for two weeks and apply to Blueprint II by the 14th."
 - **Reset room** — seed layout, ledger cleared, heat cleared (one mutation).
 - **Stop robot** — abort mid-chore.
 - **Esc** — back to the Select tool.
+- **S** — stage zoom (bigger HUD type for the projector); `?stage=1` turns it on at load.

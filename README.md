@@ -43,7 +43,8 @@ npx convex env set ANTHROPIC_API_KEY ...  --prod   # optional LLM planner (claud
 2. **Handles.** Click a wall or cabinet face with **+ Drawer** / **+ Door** to mount an articulated fixture (prismatic slide / revolute hinge). **+ Item** and **+ Zone** drop objects and targets on any flat surface. Everything is a row in the store.
 3. **Chore.** Type `put the blue bottle in the top drawer, then close it`. The planner (rule-based, or Claude via Convex) emits `navigate → pick → navigate → open → place → navigate → close`. The executor drives the robot: A* on the grid, string-pulled path, two-link arm reach, attach/detach, joint animation. Each step flips `queued → doing → done` in the ledger with a note (`arrived · 0.31 m from top drawer`).
 4. **Verdict.** PASS with distance and time, or FAIL with the reason (`blocked by clutter at (1.2 m, 3.4 m)`, `top drawer is closed`, `no standing room within 0.9 m of shelf`).
-5. **Gauntlet.** *Run variants* replays the last chore headlessly across N layouts (items shuffled to reachable cells + random clutter). Tiles flip green/red with reasons; failure points become red discs on the floor; click a tile to replay that layout in 3D.
+5. **Gauntlet.** *Run variants* replays the last chore headlessly across N layouts (the room as-is, then items shuffled to reachable cells + random clutter). Tiles flip green/red with reasons (`blocked by clutter box 2, 0.8 m from shelf`); failure points become red discs on the floor; click a tile to replay that layout in 3D.
+6. **Refresh-proof.** Reload mid-chore: the room, ledger and heat come back from the store, a held item is set down, and the chore re-queues and resumes.
 
 ## Layout
 

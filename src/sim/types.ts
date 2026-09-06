@@ -97,6 +97,8 @@ export interface Task {
   plannerName?: string;
   /** Which screen submitted it ("projector", "phone"). */
   source?: string;
+  /** Item positions when the chore started — the Gauntlet's baseline layout. */
+  layoutBefore?: { id: string; pos: Vec3 }[];
 }
 
 export type RobotState = 'idle' | 'moving' | 'working' | 'failed';

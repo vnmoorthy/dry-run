@@ -40,6 +40,8 @@ interface TaskInfo {
   progress?: number;
   output?: { model_url?: string; pbr_model?: string; rendered_image_url?: string; riggable?: boolean; rig_type?: string };
   credits_consumed?: number;
+  error_code?: number;
+  error_message?: string;
 }
 
 async function getTask(taskId: string): Promise<TaskInfo> {
@@ -137,7 +139,7 @@ export const step = internalAction({
           }
         }
         if (t.status === 'failed' || t.status === 'cancelled' || t.status === 'banned' || t.status === 'expired') {
-          throw new Error(`Tripo task ${a.taskId} ${t.status}`);
+          throw new Error(`Tripo task ${a.taskId} ${t.status}${t.error_message ? `: ${t.error_message}` : ''}${t.error_code ? ` (code ${t.error_code})` : ''}`);
         }
         if (a.attempt > 150) throw new Error('Tripo task timed out');
         await patch({ progress: Math.min(0.9, (a.stage === 'wait-generate' ? 0.05 : 0.55) + ((t.progress ?? 0) / 100) * 0.3) });
